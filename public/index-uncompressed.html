@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+        }
+        #gameCanvas {
+            border: 1px solid black;
+        }
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 18px;
+            color: black;
+        }
+        #leaderboard {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 16px;
+            color: black;
+        }
+        table {
+            border-collapse: collapse;
+            width: 250px;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        <div id="score">Score: 0  High Score: 0</div>
+    </div>
+    <div>
+        <div id="leaderboard">
+            <h3>Leaderboard</h3>
+            <table id="leaderboardTable">
+                <tr>
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Score</th>
+                </tr>
+            </table>
+            <br/>
+            <br/>
+            <div id="submitForm">
+                <input type="text" id="playerName" placeholder="Your Name">
+                <button onclick="submitHighScore()">Submit High Score</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const canvas = document.getElementById("gameCanvas");
+            const ctx = canvas.getContext("2d");
+
+            let birdY = canvas.height / 2;
+            let velocity = 0;
+            let gravity = 0.6;
+            let jumpStrength = -12;
+            let obstacles = [];
+            let gameSpeed = 2;
+            let score = 0;
+            let highScore = localStorage.getItem('flappyHighScore') || 0;
+
+            document.addEventListener("keydown", (event) => {
+                if (event.code === "Space" || event.key === " " || event.key === "ArrowUp" || event.key === "W" || event.key === "w") {
+                    velocity = jumpStrength;
+                }
+            });
+
+            function drawBird() {
+                ctx.fillStyle = "yellow";
+                ctx.fillRect(50, birdY, 30, 30);
+            }
+
+            function drawObstacles() {
+                ctx.fillStyle = "green";
+                for (let obstacle of obstacles) {
+                    ctx.fillRect(obstacle.x, 0, obstacle.width, obstacle.top);
+                    ctx.fillRect(obstacle.x, obstacle.bottom, obstacle.width, canvas.height - obstacle.bottom);
+                }
+            }
+
+            function updateObstacles() {
+                for (let i = 0; i < obstacles.length; i++) {
+                    obstacles[i].x -= gameSpeed;
+                    if (obstacles[i].x + obstacles[i].width < 0) {
+                        obstacles.splice(i, 1);
+                        i--;
+                        score++;
+                    }
+                }
+                if (obstacles.length === 0 || canvas.width - obstacles[obstacles.length - 1].x > 300) {
+                    let obstacleGap = 225;
+                    let minHeight = 50;
+                    let maxHeight = canvas.height - 50 - obstacleGap;
+                    let height = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
+
+                    let obstacle = {
+                        x: canvas.width,
+                        top: height,
+                        bottom: height + obstacleGap,
+                        width: 30,
+                    };
+                    obstacles.push(obstacle);
+                }
+            }
+
+            function checkCollisions() {
+                if (birdY + 30 > canvas.height || birdY < 0) {
+                    gameOver();
+                }
+                for (let obstacle of obstacles) {
+                    if (
+                        50 + 30 > obstacle.x &&
+                        50 < obstacle.x + obstacle.width &&
+                        (birdY < obstacle.top || birdY + 30 > obstacle.bottom)
+                    ) {
+                        gameOver();
+                    }
+                }
+            }
+
+            function gameOver() {
+                if (score > highScore) {
+                    localStorage.setItem('flappyHighScore', score);
+                    highScore = score;
+                }
+                resetGame();
+            }
+
+            function resetGame() {
+                birdY = canvas.height / 2;
+                velocity = 0;
+                score = 0;
+                obstacles = [];
+                updateScore();
+            }
+
+            function updateScore() {
+                const scoreElement = document.getElementById('score');
+                scoreElement.textContent = `Score: ${score}  High Score: ${highScore}`;
+            }
+
+            function gameLoop() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawBird();
+                drawObstacles();
+                birdY += velocity;
+                velocity += gravity;
+                updateObstacles();
+                checkCollisions();
+                updateScore();
+                requestAnimationFrame(gameLoop);
+            }
+
+            gameLoop();
+        });
+
+        async function fetchLeaderboard() {
+            try {
+                const response = await fetch('/leaderboard');
+                const leaderboardData = await response.json();
+                const leaderboardTable = document.getElementById('leaderboardTable');
+                leaderboardTable.innerHTML = '<tr><th>Rank</th><th>Name</th><th>Score</th></tr>';
+                leaderboardData.forEach((entry, index) => {
+                    const row = `<tr><td>${index + 1}</td><td>${entry.name}</td><td>${entry.score}</td></tr>`;
+                    leaderboardTable.innerHTML += row;
+                });
+            } catch (error) {
+                console.error('Error fetching leaderboard:', error);
+            }
+        }
+
+        fetchLeaderboard();
+
+
+        async function submitHighScore() {
+            const playerName = document.getElementById('playerName').value;
+            const currentScore = localStorage.getItem('flappyHighScore') || 0; // Assuming 'score' is accessible from snake.js
+            if (playerName && currentScore > 0) {
+                try {
+                    const response = await fetch('/leaderboard', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ name: playerName, score: currentScore })
+                    });
+                    if (response.ok) {
+                        alert('High score submitted successfully!');
+                        fetchLeaderboard(); // Refresh leaderboard after submission
+                    } else {
+                        throw new Error('Failed to submit high score');
+                    }
+                } catch (error) {
+                    console.error('Error submitting high score:', error);
+                    alert('Failed to submit high score. Please try again.');
+                }
+            } else {
+                alert('Please enter your name and achieve a score greater than 0 to submit.');
+            }
+        }
+    </script>
+    
+</body>
+</html>
